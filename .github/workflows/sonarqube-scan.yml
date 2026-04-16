@@ -1,0 +1,126 @@
+# Secrets requeridos:
+#   SONAR_TOKEN     - Token de autenticación de SonarQube
+#   SONAR_HOST_URL  - URL del servidor SonarQube
+
+name: SonarQube Analysis
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  sonarqube:
+    name: SonarQube Scan
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: SonarQube Scan
+      uses: SonarSource/sonarqube-scan-action@v5
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+    - name: Wait for SonarQube analysis
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      run: |
+        TASK_URL=$(grep -oP 'ceTaskUrl=\K.*' .scannerwork/report-task.txt)
+        echo "Waiting for analysis task: $TASK_URL"
+
+        for i in $(seq 1 30); do
+          STATUS=$(curl -s -u "$SONAR_TOKEN:" "$TASK_URL" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['task']['status'])")
+          echo "Attempt $i: status=$STATUS"
+          if [ "$STATUS" = "SUCCESS" ]; then
+            echo "Analysis completed successfully"
+            break
+          elif [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "CANCELED" ]; then
+            echo "Analysis $STATUS"
+            exit 1
+          fi
+          sleep 5
+        done
+
+        if [ "$STATUS" != "SUCCESS" ]; then
+          echo "Analysis timed out"
+          exit 1
+        fi
+
+    - name: Get analysis results and post PR comment
+      if: always() && github.event_name == 'pull_request'
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        PROJECT_KEY="devops-ai-course"
+        PR_NUMBER=${{ github.event.pull_request.number }}
+
+        MEASURES=$(curl -s -u "$SONAR_TOKEN:" \
+          "$SONAR_HOST_URL/api/measures/component?component=$PROJECT_KEY&metricKeys=bugs,vulnerabilities,code_smells,coverage,reliability_rating,security_rating,sqale_rating")
+
+        get_metric() {
+          echo "$MEASURES" | python3 -c "
+        import sys, json
+        data = json.load(sys.stdin)
+        for m in data.get('component', {}).get('measures', []):
+            if m['metric'] == '$1':
+                print(m['value'])
+                break
+        else:
+            print('N/A')
+        "
+        }
+
+        BUGS=$(get_metric bugs)
+        VULNS=$(get_metric vulnerabilities)
+        SMELLS=$(get_metric code_smells)
+        COVERAGE=$(get_metric coverage)
+
+        rating_label() {
+          case "$1" in
+            1|1.0) echo "A" ;;
+            2|2.0) echo "B" ;;
+            3|3.0) echo "C" ;;
+            4|4.0) echo "D" ;;
+            5|5.0) echo "E" ;;
+            *) echo "$1" ;;
+          esac
+        }
+
+        RELIABILITY=$(rating_label "$(get_metric reliability_rating)")
+        SECURITY=$(rating_label "$(get_metric security_rating)")
+        MAINTAINABILITY=$(rating_label "$(get_metric sqale_rating)")
+
+        BODY=$(cat <<'COMMENT_EOF'
+        ## 📊 SonarQube Analysis Report
+
+        | Métrica | Valor | Rating |
+        |---------|-------|--------|
+        | 🐛 Bugs | PLACEHOLDER_BUGS | PLACEHOLDER_RELIABILITY |
+        | 🔓 Vulnerabilidades | PLACEHOLDER_VULNS | PLACEHOLDER_SECURITY |
+        | 🔧 Code Smells | PLACEHOLDER_SMELLS | PLACEHOLDER_MAINTAINABILITY |
+        | 📈 Cobertura | PLACEHOLDER_COVERAGE | - |
+
+        > [Ver reporte completo en SonarQube](PLACEHOLDER_SONAR_URL)
+        COMMENT_EOF
+        )
+
+        BODY="${BODY//PLACEHOLDER_BUGS/$BUGS}"
+        BODY="${BODY//PLACEHOLDER_VULNS/$VULNS}"
+        BODY="${BODY//PLACEHOLDER_SMELLS/$SMELLS}"
+        BODY="${BODY//PLACEHOLDER_COVERAGE/${COVERAGE}%}"
+        BODY="${BODY//PLACEHOLDER_RELIABILITY/$RELIABILITY}"
+        BODY="${BODY//PLACEHOLDER_SECURITY/$SECURITY}"
+        BODY="${BODY//PLACEHOLDER_MAINTAINABILITY/$MAINTAINABILITY}"
+        BODY="${BODY//PLACEHOLDER_SONAR_URL/$SONAR_HOST_URL/dashboard?id=$PROJECT_KEY}"
+
+        gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "$BODY"
