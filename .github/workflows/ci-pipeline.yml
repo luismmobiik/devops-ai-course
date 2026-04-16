@@ -23,9 +23,9 @@ jobs:
         fetch-depth: 0
 
     - name: Security check
-      uses: trufflesecurity/trufflehog@v3
+      uses: trufflesecurity/trufflehog@v3.94.3
       with:
-        extra_args: --only-verified --fail
+        extra_args: --results=verified,unknown --fail
 
     - name: Setup Node.js
       uses: actions/setup-node@v4
