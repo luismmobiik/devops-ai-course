@@ -39,7 +39,7 @@ az bicep build --file bicep/main.bicep
 | Modulo | Tema | Skill | Agent |
 |--------|------|-------|-------|
 | 1 | CI/CD con GitHub Actions | `actions-debugger` | `pipeline-debugger` |
-| 2 | Code Review + SonarQube | `sonarcloud-fix-helper` | `pr-reviewer` |
+| 2 | Code Review + SonarQube | `sonarqube-fix-helper` | `pr-reviewer` |
 | 3 | Monitoreo e Incidentes Azure | `kql-generator` | `incident-responder` |
 | 4 | IaC con Terraform + Bicep | `iac-reviewer` | `iac-security-reviewer` |
 | 5 | DevSecOps | — | `pr-reviewer` + `iac-security-reviewer` |
