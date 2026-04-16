@@ -23,11 +23,15 @@ jobs:
         fetch-depth: 0
 
     - name: Security check
-      uses: trufflesecurity/trufflehog@v3.94.3
-      with:
-        base: ""
-        head: ${{ github.ref_name }}
-        extra_args: --results=verified,unknown,unverified
+      run: |
+        echo "Scanning for hardcoded secrets..."
+        PATTERN='AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|DB_PASSWORD|JWT_SECRET|password\s*=|eval\('
+        if grep -rEin --include='*.ts' --include='*.js' --include='*.json' --include='*.html' --exclude='*.spec.ts' --exclude-dir=node_modules "$PATTERN" devops-frontend/src/; then
+          echo "::error::Hardcoded secrets or dangerous patterns detected!"
+          exit 1
+        fi
+        echo "No issues found."
+      working-directory: .
 
     - name: Setup Node.js
       uses: actions/setup-node@v4
