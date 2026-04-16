@@ -1,14 +1,12 @@
 name: SonarQube Analysis
 
 on:
-  push:
-    branches: [main, develop]
   pull_request:
     branches: [main]
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   sonarqube:
@@ -24,3 +22,117 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      - name: Wait for SonarQube analysis
+        run: |
+          TASK_URL=$(grep -oP 'ceTaskUrl=\K.*' .scannerwork/report-task.txt)
+          echo "Waiting for analysis task: $TASK_URL"
+
+          for i in $(seq 1 30); do
+            STATUS=$(curl -s -u "$SONAR_TOKEN:" "$TASK_URL" | python3 -c "import sys,json; print(json.load(sys.stdin)['task']['status'])")
+            echo "Attempt $i: status=$STATUS"
+            if [ "$STATUS" = "SUCCESS" ]; then
+              echo "Analysis completed"
+              break
+            elif [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "CANCELED" ]; then
+              echo "Analysis $STATUS"
+              exit 1
+            fi
+            sleep 5
+          done
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Get analysis results and post PR comment
+        if: always() && github.event_name == 'pull_request'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PROJECT_KEY="devops-ai-course"
+          PR_NUMBER=${{ github.event.pull_request.number }}
+
+          MEASURES=$(curl -s -u "$SONAR_TOKEN:" \
+            "$SONAR_HOST_URL/api/measures/component?component=$PROJECT_KEY&metricKeys=bugs,vulnerabilities,code_smells,security_hotspots,coverage,duplicated_lines_density,ncloc,reliability_rating,security_rating,sqale_rating")
+
+          get_metric() {
+            echo "$MEASURES" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          for m in data.get('component', {}).get('measures', []):
+              if m['metric'] == '$1':
+                  print(m['value'])
+                  break
+          else:
+              print('N/A')
+          "
+          }
+
+          BUGS=$(get_metric bugs)
+          VULNS=$(get_metric vulnerabilities)
+          SMELLS=$(get_metric code_smells)
+          HOTSPOTS=$(get_metric security_hotspots)
+          COVERAGE=$(get_metric coverage)
+          DUPLICATION=$(get_metric duplicated_lines_density)
+          LINES=$(get_metric ncloc)
+
+          rating_label() {
+            case "$1" in
+              1|1.0) echo "A" ;;
+              2|2.0) echo "B" ;;
+              3|3.0) echo "C" ;;
+              4|4.0) echo "D" ;;
+              5|5.0) echo "E" ;;
+              *) echo "$1" ;;
+            esac
+          }
+
+          RELIABILITY=$(rating_label "$(get_metric reliability_rating)")
+          SECURITY=$(rating_label "$(get_metric security_rating)")
+          MAINTAINABILITY=$(rating_label "$(get_metric sqale_rating)")
+
+          ISSUES=$(curl -s -u "$SONAR_TOKEN:" \
+            "$SONAR_HOST_URL/api/issues/search?componentKeys=$PROJECT_KEY&ps=10&s=SEVERITY&resolved=false&severities=BLOCKER,CRITICAL,MAJOR")
+
+          ISSUES_TABLE=$(echo "$ISSUES" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          issues = data.get('issues', [])
+          if not issues:
+              print('No se encontraron issues criticos.')
+          else:
+              print('| Severidad | Tipo | Archivo | Mensaje |')
+              print('|-----------|------|---------|---------|')
+              for i in issues[:10]:
+                  sev = i.get('severity', 'N/A')
+                  typ = i.get('type', 'N/A')
+                  comp = i.get('component', '').split(':')[-1]
+                  msg = i.get('message', '').replace('|', '-')
+                  print(f'| {sev} | {typ} | \`{comp}\` | {msg} |')
+          ")
+
+          BODY=$(cat <<COMMENT_EOF
+          ## SonarQube Analysis Report
+
+          | Metrica | Valor |
+          |---------|-------|
+          | Bugs | $BUGS |
+          | Vulnerabilidades | $VULNS |
+          | Code Smells | $SMELLS |
+          | Security Hotspots | $HOTSPOTS |
+          | Cobertura | ${COVERAGE}% |
+          | Duplicacion | ${DUPLICATION}% |
+          | Lineas de codigo | $LINES |
+
+          **Ratings:** Reliability: **$RELIABILITY** | Security: **$SECURITY** | Maintainability: **$MAINTAINABILITY**
+
+          ### Top Issues
+
+          $ISSUES_TABLE
+
+          > [Ver reporte completo en SonarQube]($SONAR_HOST_URL/dashboard?id=$PROJECT_KEY)
+          COMMENT_EOF
+          )
+
+          gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "$BODY"
