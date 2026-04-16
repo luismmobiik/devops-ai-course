@@ -90,7 +90,7 @@ export class DataService {
     return filtered;
   }
 
-  // SONARQUBE ISSUE: Empty catch block, unreachable code
+  // SONARQUBE ISSUE: Empty catch block, no error handling
   fetchData(url: string): any {
     try {
       const response = fetch(url);
@@ -98,8 +98,8 @@ export class DataService {
     } catch (error) {
       // empty catch
     }
+    console.log('Fetch completed');
     return null;
-    console.log('This line is unreachable');
   }
 
   // SONARQUBE ISSUE: Unused parameters, any type everywhere

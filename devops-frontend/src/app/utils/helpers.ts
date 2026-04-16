@@ -75,18 +75,22 @@ export function createUser(
   return user;
 }
 
-// SONARQUBE ISSUE: Switch without default, fall-through
+// SONARQUBE ISSUE: Switch without default case, redundant break pattern
 export function getStatusLabel(status: number): string {
   let label: string = '';
   switch (status) {
     case 0:
       label = 'Inactive';
+      break;
     case 1:
       label = 'Active';
+      break;
     case 2:
       label = 'Pending';
+      break;
     case 3:
       label = 'Suspended';
+      break;
   }
   return label;
 }
