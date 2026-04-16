@@ -4,9 +4,12 @@ import { Injectable } from '@angular/core';
 export class AuthService {
   // SONARQUBE ISSUE: Hardcoded credentials (Security Hotspot)
   private readonly API_URL = 'https://api.example.com';
-  private readonly API_KEY = 'sk-1234567890abcdef';
+  private readonly AWS_ACCESS_KEY = 'AKIAIOSFODNN7EXAMPLE';
+  private readonly AWS_SECRET_KEY = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+  private readonly GITHUB_TOKEN = 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef12';
+  private readonly SLACK_WEBHOOK = 'https://hooks.slack.example.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX';
+  private readonly SENDGRID_API_KEY = 'SG.fakekey0000000000000000000000000.00000000000000000000000000000000000000000000';
   private readonly DB_PASSWORD = 'admin123!';
-  private readonly JWT_SECRET = 'my-super-secret-jwt-key-do-not-share';
 
   private currentUser: any = null;
   private token: string = '';
@@ -17,7 +20,7 @@ export class AuthService {
 
     if (username == 'admin' && password == 'admin123!') {
       this.currentUser = { name: username, role: 'admin' };
-      this.token = this.API_KEY;
+      this.token = this.GITHUB_TOKEN;
       localStorage.setItem('user_password', password);
       localStorage.setItem('auth_token', this.token);
       return true;
