@@ -25,6 +25,8 @@ jobs:
     - name: Security check
       uses: trufflesecurity/trufflehog@v3.94.3
       with:
+        base: ""
+        head: ${{ github.ref_name }}
         extra_args: --results=verified,unknown,unverified
 
     - name: Setup Node.js
